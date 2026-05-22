@@ -55,17 +55,18 @@ Re-run the same command. Already-scraped URLs are skipped automatically via sour
 
 ## **Keyword Extraction**
 
-The script extracts the top 10 symptom keywords per remedy from the combined text of the general field and all section values. It tokenizes text on non-alphabetic boundaries, removes common stopwords, and ranks term frequency using collections.Counter without requiring external NLP libraries. The output is saved directly into the keywords field in every remedy object, providing clean data for downstream semantic search, remedy clustering, and symptom-to-remedy mapping in the AI pipeline.
+Top 10 symptom keywords per remedy are pulled from the combined `general` and `sections` text using token frequency via `collections.Counter`. No external NLP libraries required. Output lives in the `keywords` field on every remedy object.
 
-Example output:
 ```json
-"keywords": ["burning", "anxiety", "restless", "thirst", "fever",
-             "palpitation", "skin", "chest", "pain", "worse"]
+  "keywords": ["burning", "anxiety", "restless", "thirst", "fever",
+               "palpitation", "skin", "chest", "pain", "worse"]
 ```
 
 ## **Architecture & Design Notes**
 
-The scraper uses single-purpose functions to make changes simple. Changing the output structure or target site format only requires modifying the specific parser or scraping function. The scraper writes accumulated records to the output file at the end of each letter index. If the process stops, restarting it skips already processed URLs. Pages that fail to load are recorded and skipped to prevent a single connection error from stopping the entire pipeline. Future updates can introduce async requests using httpx to increase speed, or upload results directly to MongoDB. The schema is additive, so adding fields does not break existing database readers.
+Each function in the pipeline has one job, so there is always one obvious place to make a change. A crashed run resumes from the last completed letter — nothing is reprocessed. Pages that fail after 3 retries are logged to failed_urls.txt and skipped; one bad URL does not stop the run.
+
+Adding new output fields or swapping in async fetching with httpx are the natural next steps — the JSON schema is additive so nothing downstream breaks.
 
 ## **Project Structure**
 
