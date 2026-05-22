@@ -1,57 +1,87 @@
-# boericke-scraper
+Boericke Scraper extracts the complete text of Boericke's Homoeopathic Materia Medica from homeoint.org and outputs a structured JSON dataset of every remedy (A–Z). Designed to power remedy search, repertorization engines, and AI case analysis pipelines at jarvis.care.
 
-Command-line tool to scrape homeopathic materia medica data from Boericke's Repertory to produce structured JSON datasets for downstream NLP and machine learning tasks.
+~600 remedies · full section-level structure · keyword extraction included
 
-## Prerequisites
-- Python 3.9+
+## **Prerequisites**
+
+System prerequisites:
+- Python 3.9 or higher
 - pip
+- Network access to homeoint.org
 
-## Installation
-1. Clone the repository:
-   ```bash
-   git clone <repository-url>
-   cd boericke-scraper
-   ```
-2. Create and activate a virtual environment:
-   ```bash
-   python3 -m venv venv
-   source venv/bin/activate
-   ```
-3. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
+| Package | Version | Purpose |
+|----------------|----------|--------------------------------|
+| requests | 2.31.0 | HTTP client for fetching pages |
+| beautifulsoup4 | 4.12.3 | HTML parsing |
+| lxml | 5.2.1 | HTML parser backend for BS4 |
 
-## How to Run
-### Execution
+## **Installation**
+
+```bash
+git clone <repo-url>
+cd boericke-scraper
+python -m venv venv
+source venv/bin/activate        # Windows: venv\Scripts\activate
+pip install -r requirements.txt
+```
+
+## **Usage**
+
+1. Full run (A–Z):
 ```bash
 python scraper.py
 ```
 
-### Resume Behavior
-- The scraper tracks progress locally. If execution is interrupted, restarting the script resumes from the last successfully parsed URL/remedy letter.
-- URLs that fail to parse or return non-200 responses are written to `failed_urls.txt` for future retry.
+2. Resume interrupted run:
+Re-run the same command. Already-scraped URLs are skipped automatically via source_url deduplication against the existing boericke_remedies.json. No flags needed.
 
-### Produced Output Files
-- `boericke_remedies.json`: Main output dataset containing a JSON array of parsed remedies.
-- `sample_output.json`: A 5-remedy sample committed manually.
-- `failed_urls.txt`: Text file listing URLs that failed to scrape.
+3. What gets produced:
+- boericke_remedies.json — full dataset, all remedies A–Z
+- failed_urls.txt — any URLs that could not be fetched after 3 retries
 
-## Output Fields
-The output JSON file contains an array of remedy records. Below is the detailed schema for each remedy object:
+## **Output Schema**
 
-| Field | Type | Always Present? | Description |
-|---|---|---|---|
-| `abbreviation` | string | Yes | The uppercase abbreviation of the remedy as shown in the letter index (e.g., `ABIES-C`). |
-| `full_name` | string | Yes | The full Latin/scientific name extracted from the page title. |
-| `common_name` | string \| null | No | The common or English name of the source substance (e.g., `Hemlock Spruce`). |
-| `source_url` | string | Yes | The original URL of the individual scraped remedy page. |
-| `letter` | string | Yes | The uppercase letter index grouping (A–Z) for this remedy. |
-| `general` | string | Yes | The introductory or general summary text block before any subheadings. |
-| `sections` | object | Yes | A dictionary mapping clinical organ systems (e.g., `Mind`, `Head`, `Eyes`) to their parsed text blocks. |
-| `relationships` | string \| null | No | The raw text of the remedy relationship modalities, if present. |
-| `keywords` | array of strings | Yes | Top clinically relevant words extracted by term frequency analysis. |
+| Field | Type | Always Present | Description |
+|---------------|----------------|----------------|-----------------------------------------------------------|
+| abbreviation | string | Yes | Uppercase remedy code as shown in the letter index |
+| full_name | string | Yes | Full Latin remedy name from the page heading |
+| common_name | string or null | No | English or common name if present on the page |
+| source_url | string | Yes | Canonical URL of the individual remedy page |
+| letter | string | Yes | Single uppercase letter A–Z |
+| general | string | Yes | Opening paragraphs before the first section heading |
+| sections | dict[str, str] | Yes | Section title mapped to section text (Head, Stomach etc) |
+| relationships | string or null | No | Cross-references to related remedies if present |
+| keywords | list[str] | Yes | Top 10 symptom keywords extracted from remedy text |
 
-## Rate Limiting and Server Courtesy
-- A delay of 0.5 to 1.0 second is enforced between requests to avoid overloading the target server.
-- Request headers include a custom User-Agent identifying the crawler.
+## **Keyword Extraction**
+
+The script extracts the top 10 symptom keywords per remedy from the combined text of the general field and all section values. It tokenizes text on non-alphabetic boundaries, removes common stopwords, and ranks term frequency using collections.Counter without requiring external NLP libraries. The output is saved directly into the keywords field in every remedy object, providing clean data for downstream semantic search, remedy clustering, and symptom-to-remedy mapping in the AI pipeline.
+
+Example output:
+```json
+"keywords": ["burning", "anxiety", "restless", "thirst", "fever",
+             "palpitation", "skin", "chest", "pain", "worse"]
+```
+
+## **Architecture & Design Notes**
+
+The scraper uses single-purpose functions to make changes simple. Changing the output structure or target site format only requires modifying the specific parser or scraping function. The scraper writes accumulated records to the output file at the end of each letter index. If the process stops, restarting it skips already processed URLs. Pages that fail to load are recorded and skipped to prevent a single connection error from stopping the entire pipeline. Future updates can introduce async requests using httpx to increase speed, or upload results directly to MongoDB. The schema is additive, so adding fields does not break existing database readers.
+
+## **Project Structure**
+
+```
+boericke-scraper/
+├── scraper.py              # Core scraper — all pipeline logic
+├── requirements.txt        # Pinned dependencies
+├── README.md               # This file
+├── boericke_remedies.json  # Full A–Z output (generated on run)
+├── sample_output.json      # 5-remedy reference sample
+└── failed_urls.txt         # Failed URLs after retries (generated on run)
+```
+
+## **Rate Limiting & Server Courtesy**
+
+The scraper waits 1.5–3.0 seconds between requests to avoid overloading
+homeoint.org, which is a small public-interest server. Do not reduce this
+delay. HTTP errors are retried up to 3 times with exponential backoff 
+before a URL is marked as failed.
