@@ -88,7 +88,8 @@ def _is_section_heading(text: str) -> bool:
     cleaned = text.strip()
     if cleaned.endswith(".--"):
         return True
-    if cleaned.rstrip(".-").strip().lower() == "relationships":
+    normalized = cleaned.rstrip(".-").strip().lower()
+    if normalized in {"relationship", "relationships"}:
         return True
     return False
 
@@ -151,11 +152,20 @@ def _parse_sections(soup: BeautifulSoup) -> dict[str, str]:
         if isinstance(node, Comment) or node.parent.name in ["script", "style", "head", "title"]:
             continue
             
-        if _is_section_heading(txt):
+        is_heading = _is_section_heading(txt)
+        if is_heading:
             title = txt.rstrip("-").rstrip(".").strip().capitalize()
-            if title not in sections:
-                sections[title] = []
-            active_section = title
+            # If we are currently parsing relationships, only allow "Dose" or another "Relationship" to break out
+            if active_section.lower() in {"relationship", "relationships"}:
+                if title.lower() not in {"dose", "relationship", "relationships"}:
+                    is_heading = False
+            
+            if is_heading:
+                if title not in sections:
+                    sections[title] = []
+                active_section = title
+            else:
+                sections[active_section].append(node)
         else:
             sections[active_section].append(node)
             
@@ -214,14 +224,9 @@ def scrape_remedy_page(
         parsed_sections = _parse_sections(soup)
         general = parsed_sections.pop("general", "")
         
-        relationships = None
-        rel_key = None
-        for key in list(parsed_sections.keys()):
-            if key.lower() == "relationships":
-                rel_key = key
-                break
-        if rel_key:
-            relationships = parsed_sections.pop(rel_key)
+        relationships = parsed_sections.pop("Relationships", None)
+        if relationships is None:
+            relationships = parsed_sections.pop("Relationship", None)
             
         remedy_data = {
             "abbreviation": abbreviation,
@@ -380,5 +385,19 @@ def verify_output(filepath: str = DEFAULT_OUTPUT_FILE) -> None:
 
 
 if __name__ == "__main__":
-    run_scraper()
-    verify_output()
+    import requests
+    session = requests.Session()
+    session.headers.update({"User-Agent": "boericke-scraper/1.0 (research)"})
+
+    test_cases = [
+        ("http://homeoint.org/books/boericmm/a/acon.htm",  "A", "ACON"),
+        ("http://homeoint.org/books/boericmm/a/arn.htm",   "A", "ARN"),
+        ("http://homeoint.org/books/boericmm/a/ars.htm",   "A", "ARS"),
+        ("http://homeoint.org/books/boericmm/a/aur.htm",   "A", "AUR"),
+    ]
+
+    for url, letter, abbr in test_cases:
+        result = scrape_remedy_page(session, url, letter, abbr)
+        print(f"{abbr}:")
+        print(f"  relationships -> {result['relationships']}")
+        print(f"  sections keys -> {list(result['sections'].keys())}")
